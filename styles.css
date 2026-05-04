@@ -182,6 +182,40 @@ h2 {
   display: block;
 }
 
+.grid-controls {
+  display: grid;
+  grid-template-columns: 82px 82px 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.grid-controls label {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.grid-controls input,
+.grid-controls button {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 800;
+}
+
+.grid-controls input {
+  width: 100%;
+  padding: 8px;
+}
+
+.grid-controls button {
+  align-self: end;
+  cursor: pointer;
+}
+
 .palette {
   display: grid;
   place-items: center;
@@ -420,5 +454,9 @@ h2 {
     --tile-size: min(42px, calc((100vw - 54px) / var(--cols)));
     gap: 4px;
     width: calc(var(--tile-size) * var(--cols) + 40px);
+  }
+
+  .grid-controls {
+    grid-template-columns: 72px 72px 1fr;
   }
 }

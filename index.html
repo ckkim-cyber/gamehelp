@@ -37,6 +37,18 @@
 
       <canvas id="previewCanvas" class="preview-canvas" width="420" height="420" aria-label="인식 미리보기"></canvas>
 
+      <div class="grid-controls" aria-label="보드 크기 보정">
+        <label>
+          행
+          <input id="rowCount" type="number" min="4" max="12" value="8">
+        </label>
+        <label>
+          열
+          <input id="colCount" type="number" min="4" max="12" value="8">
+        </label>
+        <button id="recognizeFixedGrid" type="button">크기 맞춰 재인식</button>
+      </div>
+
       <div class="tool-row" aria-label="타일 선택">
         <button class="palette active" type="button" data-tool="0" aria-label="빨간 타일"><span class="gem gem-0">◆</span></button>
         <button class="palette" type="button" data-tool="1" aria-label="파란 타일"><span class="gem gem-1">●</span></button>

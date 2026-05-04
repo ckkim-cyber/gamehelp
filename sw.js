@@ -1,4 +1,4 @@
-const CACHE_NAME = "gamehelp-v4";
+const CACHE_NAME = "gamehelp-v5";
 const ASSETS = [
   "./",
   "./index.html",

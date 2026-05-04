@@ -1,7 +1,7 @@
 const defaultRows = 8;
 const defaultCols = 8;
-const minGrid = 5;
-const maxGrid = 11;
+const minGrid = 4;
+const maxGrid = 12;
 const symbols = ["◆", "●", "▲", "■", "✦", "⬟"];
 const hueNames = ["빨강", "파랑", "초록", "노랑", "보라", "청록"];
 const sampleBoard = [
@@ -33,6 +33,8 @@ const bestReasonEl = document.getElementById("bestReason");
 const moveListEl = document.getElementById("moveList");
 const imageInput = document.getElementById("imageInput");
 const anyFileInput = document.getElementById("anyFileInput");
+const rowCountInput = document.getElementById("rowCount");
+const colCountInput = document.getElementById("colCount");
 const previewCanvas = document.getElementById("previewCanvas");
 const previewCtx = previewCanvas.getContext("2d", { willReadFrequently: true });
 const paletteButtons = [...document.querySelectorAll(".palette")];
@@ -54,6 +56,8 @@ function renderBoard() {
   boardEl.innerHTML = "";
   boardEl.style.setProperty("--rows", state.rows);
   boardEl.style.setProperty("--cols", state.cols);
+  rowCountInput.value = state.rows;
+  colCountInput.value = state.cols;
 
   for (let row = 0; row < state.rows; row += 1) {
     for (let col = 0; col < state.cols; col += 1) {
@@ -419,31 +423,44 @@ function recognizeFromImage() {
   );
 }
 
+function recognizeFixedGrid() {
+  if (!state.imageCanvas) {
+    updateEmptyResult("스크린샷이 없습니다", "먼저 게임 화면 스크린샷을 선택하세요.");
+    return;
+  }
+  const rows = clamp(Math.round(Number(rowCountInput.value) || defaultRows), minGrid, maxGrid);
+  const cols = clamp(Math.round(Number(colCountInput.value) || defaultCols), minGrid, maxGrid);
+  const crop = state.crop || detectBoardCrop(state.imageCanvas);
+  const result = evaluateGrid(state.imageCanvas, crop, rows, cols);
+  state.crop = result.crop;
+  setBoard(result.board);
+  drawPreview(result);
+  updateEmptyResult(
+    `${rows}행 ${cols}열로 재인식`,
+    "게임판 크기가 맞으면 해결 계산을 누르세요. 틀린 칸은 색상 도구로 보정할 수 있습니다."
+  );
+}
+
 function detectBoardCrop(canvas) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const { width, height } = canvas;
   const data = ctx.getImageData(0, 0, width, height).data;
-  let minX = width;
-  let minY = height;
-  let maxX = 0;
-  let maxY = 0;
-  let count = 0;
+  const leftLimit = Math.floor(width * 0.18);
+  const rightLimit = Math.floor(width * 0.86);
+  const topLimit = Math.floor(height * 0.02);
+  const bottomLimit = Math.floor(height * 0.97);
+  const points = [];
 
-  for (let y = Math.floor(height * 0.08); y < Math.floor(height * 0.95); y += 3) {
-    for (let x = Math.floor(width * 0.04); x < Math.floor(width * 0.96); x += 3) {
+  for (let y = topLimit; y < bottomLimit; y += 3) {
+    for (let x = leftLimit; x < rightLimit; x += 3) {
       const index = (y * width + x) * 4;
-      const hsl = rgbToHsl(data[index], data[index + 1], data[index + 2]);
-      if (hsl.s > 0.28 && hsl.l > 0.18 && hsl.l < 0.86) {
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
-        count += 1;
+      if (isLikelyTilePixel(data[index], data[index + 1], data[index + 2])) {
+        points.push({ x, y });
       }
     }
   }
 
-  if (count < 200) {
+  if (points.length < 200) {
     const side = Math.min(width, height) * 0.78;
     return {
       x: (width - side) / 2,
@@ -453,8 +470,14 @@ function detectBoardCrop(canvas) {
     };
   }
 
-  const padX = (maxX - minX) * 0.04;
-  const padY = (maxY - minY) * 0.04;
+  const xs = points.map((point) => point.x).sort((a, b) => a - b);
+  const ys = points.map((point) => point.y).sort((a, b) => a - b);
+  const minX = percentile(xs, 0.02);
+  const maxX = percentile(xs, 0.98);
+  const minY = percentile(ys, 0.02);
+  const maxY = percentile(ys, 0.98);
+  const padX = (maxX - minX) * 0.075;
+  const padY = (maxY - minY) * 0.085;
   return {
     x: clamp(minX - padX, 0, width - 1),
     y: clamp(minY - padY, 0, height - 1),
@@ -463,10 +486,33 @@ function detectBoardCrop(canvas) {
   };
 }
 
+function isLikelyTilePixel(r, g, b) {
+  const hsl = rgbToHsl(r, g, b);
+  if (hsl.s < 0.42 || hsl.l < 0.24 || hsl.l > 0.86) {
+    return false;
+  }
+  return (
+    hsl.h < 25 ||
+    hsl.h >= 330 ||
+    (hsl.h >= 28 && hsl.h <= 72) ||
+    (hsl.h >= 82 && hsl.h <= 155) ||
+    (hsl.h >= 158 && hsl.h <= 190) ||
+    (hsl.h >= 195 && hsl.h <= 245)
+  );
+}
+
+function percentile(values, ratio) {
+  if (!values.length) {
+    return 0;
+  }
+  const index = clamp(Math.floor(values.length * ratio), 0, values.length - 1);
+  return values[index];
+}
+
 function evaluateGrid(canvas, crop, rows, cols) {
   const aspect = crop.width / crop.height;
   const gridAspect = cols / rows;
-  const aspectPenalty = Math.abs(Math.log(aspect / gridAspect)) * 42;
+  const aspectPenalty = Math.abs(Math.log(aspect / gridAspect)) * 70;
   const cellSize = Math.min(crop.width / cols, crop.height / rows);
   const width = cellSize * cols;
   const height = cellSize * rows;
@@ -496,8 +542,9 @@ function evaluateGrid(canvas, crop, rows, cols) {
   }
 
   const fillRatio = usable / (rows * cols);
-  const densityPenalty = Math.abs(rows * cols - usable) * 0.25;
-  const confidence = confidenceTotal / (rows * cols) + fillRatio * 18 - aspectPenalty - densityPenalty - edgePenalty;
+  const densityPenalty = Math.abs(rows * cols - usable) * 0.18;
+  const matchPotential = findMatches(board).length * 0.25;
+  const confidence = confidenceTotal / (rows * cols) + fillRatio * 16 + matchPotential - aspectPenalty - densityPenalty - edgePenalty;
   return {
     rows,
     cols,
@@ -511,40 +558,44 @@ function sampleCell(canvas, crop, rows, cols, row, col) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const cellW = crop.width / cols;
   const cellH = crop.height / rows;
-  const sampleW = Math.max(2, Math.floor(cellW * 0.32));
-  const sampleH = Math.max(2, Math.floor(cellH * 0.32));
+  const sampleW = Math.max(2, Math.floor(cellW * 0.46));
+  const sampleH = Math.max(2, Math.floor(cellH * 0.46));
   const startX = Math.round(crop.x + col * cellW + cellW * 0.5 - sampleW / 2);
   const startY = Math.round(crop.y + row * cellH + cellH * 0.5 - sampleH / 2);
   const safeX = clamp(startX, 0, canvas.width - sampleW);
   const safeY = clamp(startY, 0, canvas.height - sampleH);
   const pixels = ctx.getImageData(safeX, safeY, sampleW, sampleH).data;
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  let total = 0;
+  const votes = new Map();
+  let bestColor = { value: null, confidence: 0 };
 
   for (let i = 0; i < pixels.length; i += 4) {
-    r += pixels[i];
-    g += pixels[i + 1];
-    b += pixels[i + 2];
-    total += 1;
+    const classified = classifyColor(pixels[i], pixels[i + 1], pixels[i + 2]);
+    const key = String(classified.value);
+    votes.set(key, (votes.get(key) || 0) + classified.confidence);
+    if (classified.confidence > bestColor.confidence) {
+      bestColor = classified;
+    }
   }
 
-  const avg = {
-    r: r / total,
-    g: g / total,
-    b: b / total
-  };
-  return classifyColor(avg.r, avg.g, avg.b);
+  let winner = { key: String(bestColor.value), score: 0 };
+  votes.forEach((score, key) => {
+    if (score > winner.score) {
+      winner = { key, score };
+    }
+  });
+
+  const value = winner.key === "null" ? null : winner.key === "x" ? "x" : Number(winner.key);
+  const confidence = clamp(winner.score / Math.max(1, pixels.length / 4), 18, 100);
+  return { value, confidence };
 }
 
 function classifyColor(r, g, b) {
   const hsl = rgbToHsl(r, g, b);
   if (hsl.l < 0.18) {
-    return { value: "x", confidence: 54 };
+    return { value: "x", confidence: 42 };
   }
-  if (hsl.s < 0.16 || hsl.l > 0.88) {
-    return { value: null, confidence: 34 };
+  if (hsl.s < 0.18 || hsl.l > 0.9) {
+    return { value: null, confidence: 26 };
   }
 
   let value = 0;
@@ -562,8 +613,13 @@ function classifyColor(r, g, b) {
 
   const centerHue = [0, 218, 114, 48, 278, 174][value];
   const hueDistance = Math.min(Math.abs(hsl.h - centerHue), 360 - Math.abs(hsl.h - centerHue));
-  const confidence = clamp(92 - hueDistance * 1.2 + hsl.s * 18, 20, 100);
+  const confidence = clamp(92 - hueDistance * 1.15 + hsl.s * 20 + colorDominance(r, g, b) * 16, 18, 100);
   return { value, confidence };
+}
+
+function colorDominance(r, g, b) {
+  const values = [r, g, b].sort((a, b) => b - a);
+  return (values[0] - values[1]) / 255;
 }
 
 function rgbToHsl(r, g, b) {
@@ -648,6 +704,7 @@ paletteButtons.forEach((button) => {
 imageInput.addEventListener("change", () => loadImage(imageInput.files[0]));
 anyFileInput.addEventListener("change", () => loadImage(anyFileInput.files[0]));
 document.getElementById("recognizeBoard").addEventListener("click", recognizeFromImage);
+document.getElementById("recognizeFixedGrid").addEventListener("click", recognizeFixedGrid);
 document.getElementById("resetBoard").addEventListener("click", resetBoard);
 document.getElementById("fillSample").addEventListener("click", fillSampleBoard);
 document.getElementById("solveBoard").addEventListener("click", solveBoard);
