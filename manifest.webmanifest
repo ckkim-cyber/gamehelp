@@ -1,0 +1,19 @@
+{
+  "name": "gamehelp",
+  "short_name": "gamehelp",
+  "description": "매치-3 보드를 입력하면 추천 이동을 계산하는 모바일 도우미",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e7edf1",
+  "theme_color": "#263644",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

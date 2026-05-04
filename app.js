@@ -1,0 +1,628 @@
+const defaultRows = 8;
+const defaultCols = 8;
+const minGrid = 5;
+const maxGrid = 11;
+const symbols = ["◆", "●", "▲", "■", "✦", "⬟"];
+const hueNames = ["빨강", "파랑", "초록", "노랑", "보라", "청록"];
+const sampleBoard = [
+  [0, 1, 2, 3, 4, 5, 0, 1],
+  [1, 2, 1, 4, 5, 0, 2, 3],
+  [2, 1, 3, 5, 0, 1, 3, 4],
+  [3, 4, 5, 0, 2, 3, 4, 5],
+  [4, 5, 0, 2, 1, 4, 5, 0],
+  [5, 0, 1, 3, 4, 5, 0, 2],
+  [0, 2, 3, 4, 5, 0, 1, 3],
+  [1, 3, 4, 5, 0, 2, 3, 4]
+];
+
+const state = {
+  rows: defaultRows,
+  cols: defaultCols,
+  tool: "0",
+  board: makeBoard(defaultRows, defaultCols),
+  suggestion: null,
+  matches: [],
+  image: null,
+  imageCanvas: null,
+  crop: null
+};
+
+const boardEl = document.getElementById("board");
+const bestMoveEl = document.getElementById("bestMove");
+const bestReasonEl = document.getElementById("bestReason");
+const moveListEl = document.getElementById("moveList");
+const imageInput = document.getElementById("imageInput");
+const previewCanvas = document.getElementById("previewCanvas");
+const previewCtx = previewCanvas.getContext("2d", { willReadFrequently: true });
+const paletteButtons = [...document.querySelectorAll(".palette")];
+
+function makeBoard(rows, cols) {
+  return Array.from({ length: rows }, () => Array(cols).fill(null));
+}
+
+function setBoard(board) {
+  state.rows = board.length;
+  state.cols = board[0]?.length || defaultCols;
+  state.board = board;
+  state.suggestion = null;
+  state.matches = [];
+  renderBoard();
+}
+
+function renderBoard() {
+  boardEl.innerHTML = "";
+  boardEl.style.setProperty("--rows", state.rows);
+  boardEl.style.setProperty("--cols", state.cols);
+
+  for (let row = 0; row < state.rows; row += 1) {
+    for (let col = 0; col < state.cols; col += 1) {
+      const value = state.board[row][col];
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "cell";
+      button.dataset.row = row;
+      button.dataset.col = col;
+      button.setAttribute("aria-label", `${row + 1}행 ${col + 1}열`);
+
+      if (value === null) {
+        button.classList.add("empty");
+      } else if (value === "x") {
+        button.classList.add("blocked");
+        button.textContent = "×";
+      } else {
+        const gem = document.createElement("span");
+        gem.className = `gem gem-${value}`;
+        gem.textContent = symbols[value];
+        button.appendChild(gem);
+      }
+
+      if (state.suggestion) {
+        const { from, to } = state.suggestion;
+        if (from.row === row && from.col === col) {
+          button.classList.add("suggest-from");
+        }
+        if (to.row === row && to.col === col) {
+          button.classList.add("suggest-to");
+        }
+      }
+
+      if (state.matches.some((cell) => cell.row === row && cell.col === col)) {
+        button.classList.add("matched");
+      }
+
+      button.addEventListener("click", () => paintCell(row, col));
+      boardEl.appendChild(button);
+    }
+  }
+}
+
+function paintCell(row, col) {
+  state.board[row][col] = state.tool === "blank" ? null : normalizeValue(state.tool);
+  state.suggestion = null;
+  state.matches = [];
+  renderBoard();
+  updateEmptyResult("보정 완료", "수정된 보드를 기준으로 다시 해결 계산을 누르세요.");
+}
+
+function normalizeValue(value) {
+  return value === "x" ? "x" : Number(value);
+}
+
+function setTool(tool) {
+  state.tool = tool;
+  paletteButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.tool === tool);
+  });
+}
+
+function cloneBoard(board) {
+  return board.map((row) => [...row]);
+}
+
+function isGem(value) {
+  return Number.isInteger(value);
+}
+
+function swap(board, from, to) {
+  const next = cloneBoard(board);
+  const temp = next[from.row][from.col];
+  next[from.row][from.col] = next[to.row][to.col];
+  next[to.row][to.col] = temp;
+  return next;
+}
+
+function findMatches(board) {
+  const rows = board.length;
+  const cols = board[0]?.length || 0;
+  const matches = new Set();
+
+  for (let row = 0; row < rows; row += 1) {
+    let runStart = 0;
+    for (let col = 1; col <= cols; col += 1) {
+      const runValue = board[row][runStart];
+      if (col < cols && isGem(runValue) && board[row][col] === runValue) {
+        continue;
+      }
+      if (isGem(runValue) && col - runStart >= 3) {
+        for (let runCol = runStart; runCol < col; runCol += 1) {
+          matches.add(`${row},${runCol}`);
+        }
+      }
+      runStart = col;
+    }
+  }
+
+  for (let col = 0; col < cols; col += 1) {
+    let runStart = 0;
+    for (let row = 1; row <= rows; row += 1) {
+      const runValue = board[runStart][col];
+      if (row < rows && isGem(runValue) && board[row][col] === runValue) {
+        continue;
+      }
+      if (isGem(runValue) && row - runStart >= 3) {
+        for (let runRow = runStart; runRow < row; runRow += 1) {
+          matches.add(`${runRow},${col}`);
+        }
+      }
+      runStart = row;
+    }
+  }
+
+  return [...matches].map((key) => {
+    const [row, col] = key.split(",").map(Number);
+    return { row, col };
+  });
+}
+
+function scoreMove(board, from, to) {
+  if (!isGem(board[from.row][from.col]) || !isGem(board[to.row][to.col])) {
+    return null;
+  }
+  if (board[from.row][from.col] === board[to.row][to.col]) {
+    return null;
+  }
+
+  const swapped = swap(board, from, to);
+  const matches = findMatches(swapped);
+  if (!matches.length) {
+    return null;
+  }
+
+  const touchesSwap = matches.some((cell) => (
+    (cell.row === from.row && cell.col === from.col) ||
+    (cell.row === to.row && cell.col === to.col)
+  ));
+  const lineBonus = longestLine(swapped, matches);
+  const crossBonus = hasCross(matches) ? 18 : 0;
+  const score = matches.length * 10 + lineBonus + crossBonus + (touchesSwap ? 4 : 0);
+
+  return {
+    from,
+    to,
+    matches,
+    score,
+    reason: buildReason(matches.length, lineBonus, crossBonus)
+  };
+}
+
+function longestLine(board, matches) {
+  const rows = board.length;
+  const cols = board[0]?.length || 0;
+  let longest = 0;
+  matches.forEach(({ row, col }) => {
+    const value = board[row][col];
+    let horizontal = 1;
+    let left = col - 1;
+    while (left >= 0 && board[row][left] === value) {
+      horizontal += 1;
+      left -= 1;
+    }
+    let right = col + 1;
+    while (right < cols && board[row][right] === value) {
+      horizontal += 1;
+      right += 1;
+    }
+
+    let vertical = 1;
+    let up = row - 1;
+    while (up >= 0 && board[up][col] === value) {
+      vertical += 1;
+      up -= 1;
+    }
+    let down = row + 1;
+    while (down < rows && board[down][col] === value) {
+      vertical += 1;
+      down += 1;
+    }
+
+    longest = Math.max(longest, horizontal, vertical);
+  });
+
+  if (longest >= 5) {
+    return 35;
+  }
+  if (longest === 4) {
+    return 16;
+  }
+  return 0;
+}
+
+function hasCross(matches) {
+  const byRow = new Map();
+  const byCol = new Map();
+  matches.forEach(({ row, col }) => {
+    byRow.set(row, (byRow.get(row) || 0) + 1);
+    byCol.set(col, (byCol.get(col) || 0) + 1);
+  });
+  return [...byRow.values()].some((count) => count >= 3) &&
+    [...byCol.values()].some((count) => count >= 3);
+}
+
+function buildReason(count, lineBonus, crossBonus) {
+  if (lineBonus >= 35) {
+    return `${count}개 제거, 5칸 연결 가능성이 높습니다.`;
+  }
+  if (crossBonus) {
+    return `${count}개 제거, 교차 매치라 특수 타일 후보입니다.`;
+  }
+  if (lineBonus) {
+    return `${count}개 제거, 4칸 매치 후보입니다.`;
+  }
+  return `${count}개 제거가 예상됩니다.`;
+}
+
+function solveBoard() {
+  const candidates = [];
+  for (let row = 0; row < state.rows; row += 1) {
+    for (let col = 0; col < state.cols; col += 1) {
+      const from = { row, col };
+      const right = col + 1 < state.cols ? { row, col: col + 1 } : null;
+      const down = row + 1 < state.rows ? { row: row + 1, col } : null;
+      [right, down].filter(Boolean).forEach((to) => {
+        const result = scoreMove(state.board, from, to);
+        if (result) {
+          candidates.push(result);
+        }
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  state.suggestion = candidates[0] || null;
+  state.matches = candidates[0]?.matches || [];
+  renderBoard();
+  renderResults(candidates);
+}
+
+function renderResults(candidates) {
+  moveListEl.innerHTML = "";
+  if (!candidates.length) {
+    bestMoveEl.textContent = "가능한 매치가 없습니다";
+    bestReasonEl.textContent = "인식 결과가 틀렸거나 현재 보드에서 유효한 교환을 찾지 못했습니다.";
+    return;
+  }
+
+  const best = candidates[0];
+  bestMoveEl.textContent = formatMove(best);
+  bestReasonEl.textContent = best.reason;
+
+  candidates.slice(0, 5).forEach((candidate) => {
+    const item = document.createElement("li");
+    const title = document.createElement("strong");
+    const desc = document.createElement("span");
+    title.textContent = formatMove(candidate);
+    desc.textContent = `${candidate.reason} 점수 ${candidate.score}`;
+    item.append(title, desc);
+    moveListEl.appendChild(item);
+  });
+}
+
+function formatMove(move) {
+  return `${formatCell(move.from)} ↔ ${formatCell(move.to)}`;
+}
+
+function formatCell(cell) {
+  return `${cell.row + 1}행 ${cell.col + 1}열`;
+}
+
+function updateEmptyResult(title = "해결 계산을 누르세요", text = "인식된 보드를 기준으로 모든 인접 교환을 시뮬레이션합니다.") {
+  bestMoveEl.textContent = title;
+  bestReasonEl.textContent = text;
+  moveListEl.innerHTML = "";
+}
+
+function resetBoard() {
+  setBoard(makeBoard(defaultRows, defaultCols));
+  state.crop = null;
+  drawPreview();
+  updateEmptyResult("초기화 완료", "스크린샷을 다시 선택하거나 예시 보드를 불러오세요.");
+}
+
+function fillSampleBoard() {
+  setBoard(cloneBoard(sampleBoard));
+  updateEmptyResult("예시 보드 준비", "해결 계산을 누르면 추천 이동을 확인할 수 있습니다.");
+}
+
+async function loadImage(file) {
+  if (!file) {
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const image = new Image();
+  image.onload = () => {
+    URL.revokeObjectURL(url);
+    state.image = image;
+    state.imageCanvas = imageToCanvas(image);
+    recognizeFromImage();
+  };
+  image.src = url;
+}
+
+function imageToCanvas(image) {
+  const maxSide = 1200;
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(image.naturalWidth * scale);
+  canvas.height = Math.round(image.naturalHeight * scale);
+  canvas.getContext("2d", { willReadFrequently: true }).drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function recognizeFromImage() {
+  if (!state.imageCanvas) {
+    updateEmptyResult("스크린샷이 없습니다", "먼저 게임 화면 스크린샷을 선택하세요.");
+    return;
+  }
+
+  const crop = detectBoardCrop(state.imageCanvas);
+  const candidates = [];
+  for (let rows = minGrid; rows <= maxGrid; rows += 1) {
+    for (let cols = minGrid; cols <= maxGrid; cols += 1) {
+      candidates.push(evaluateGrid(state.imageCanvas, crop, rows, cols));
+    }
+  }
+
+  candidates.sort((a, b) => b.confidence - a.confidence);
+  const best = candidates[0];
+  state.crop = best.crop;
+  setBoard(best.board);
+  drawPreview(best);
+  updateEmptyResult(
+    `${best.rows}행 ${best.cols}열 자동 인식`,
+    `평균 신뢰도 ${Math.round(best.confidence)}점입니다. 틀린 칸만 보정한 뒤 해결 계산을 누르세요.`
+  );
+}
+
+function detectBoardCrop(canvas) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const { width, height } = canvas;
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  let count = 0;
+
+  for (let y = Math.floor(height * 0.08); y < Math.floor(height * 0.95); y += 3) {
+    for (let x = Math.floor(width * 0.04); x < Math.floor(width * 0.96); x += 3) {
+      const index = (y * width + x) * 4;
+      const hsl = rgbToHsl(data[index], data[index + 1], data[index + 2]);
+      if (hsl.s > 0.28 && hsl.l > 0.18 && hsl.l < 0.86) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+        count += 1;
+      }
+    }
+  }
+
+  if (count < 200) {
+    const side = Math.min(width, height) * 0.78;
+    return {
+      x: (width - side) / 2,
+      y: (height - side) * 0.58,
+      width: side,
+      height: side
+    };
+  }
+
+  const padX = (maxX - minX) * 0.04;
+  const padY = (maxY - minY) * 0.04;
+  return {
+    x: clamp(minX - padX, 0, width - 1),
+    y: clamp(minY - padY, 0, height - 1),
+    width: clamp(maxX - minX + padX * 2, 40, width),
+    height: clamp(maxY - minY + padY * 2, 40, height)
+  };
+}
+
+function evaluateGrid(canvas, crop, rows, cols) {
+  const aspect = crop.width / crop.height;
+  const gridAspect = cols / rows;
+  const aspectPenalty = Math.abs(Math.log(aspect / gridAspect)) * 42;
+  const cellSize = Math.min(crop.width / cols, crop.height / rows);
+  const width = cellSize * cols;
+  const height = cellSize * rows;
+  const adjustedCrop = {
+    x: crop.x + (crop.width - width) / 2,
+    y: crop.y + (crop.height - height) / 2,
+    width,
+    height
+  };
+
+  const board = [];
+  let confidenceTotal = 0;
+  let usable = 0;
+  let edgePenalty = 0;
+  for (let row = 0; row < rows; row += 1) {
+    board[row] = [];
+    for (let col = 0; col < cols; col += 1) {
+      const sample = sampleCell(canvas, adjustedCrop, rows, cols, row, col);
+      board[row][col] = sample.value;
+      confidenceTotal += sample.confidence;
+      if (isGem(sample.value)) {
+        usable += 1;
+      } else {
+        edgePenalty += 0.6;
+      }
+    }
+  }
+
+  const fillRatio = usable / (rows * cols);
+  const densityPenalty = Math.abs(rows * cols - usable) * 0.25;
+  const confidence = confidenceTotal / (rows * cols) + fillRatio * 18 - aspectPenalty - densityPenalty - edgePenalty;
+  return {
+    rows,
+    cols,
+    board,
+    crop: adjustedCrop,
+    confidence
+  };
+}
+
+function sampleCell(canvas, crop, rows, cols, row, col) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const cellW = crop.width / cols;
+  const cellH = crop.height / rows;
+  const sampleW = Math.max(2, Math.floor(cellW * 0.32));
+  const sampleH = Math.max(2, Math.floor(cellH * 0.32));
+  const startX = Math.round(crop.x + col * cellW + cellW * 0.5 - sampleW / 2);
+  const startY = Math.round(crop.y + row * cellH + cellH * 0.5 - sampleH / 2);
+  const safeX = clamp(startX, 0, canvas.width - sampleW);
+  const safeY = clamp(startY, 0, canvas.height - sampleH);
+  const pixels = ctx.getImageData(safeX, safeY, sampleW, sampleH).data;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let total = 0;
+
+  for (let i = 0; i < pixels.length; i += 4) {
+    r += pixels[i];
+    g += pixels[i + 1];
+    b += pixels[i + 2];
+    total += 1;
+  }
+
+  const avg = {
+    r: r / total,
+    g: g / total,
+    b: b / total
+  };
+  return classifyColor(avg.r, avg.g, avg.b);
+}
+
+function classifyColor(r, g, b) {
+  const hsl = rgbToHsl(r, g, b);
+  if (hsl.l < 0.18) {
+    return { value: "x", confidence: 54 };
+  }
+  if (hsl.s < 0.16 || hsl.l > 0.88) {
+    return { value: null, confidence: 34 };
+  }
+
+  let value = 0;
+  if (hsl.h >= 25 && hsl.h < 72) {
+    value = 3;
+  } else if (hsl.h >= 72 && hsl.h < 155) {
+    value = 2;
+  } else if (hsl.h >= 155 && hsl.h < 190) {
+    value = 5;
+  } else if (hsl.h >= 190 && hsl.h < 245) {
+    value = 1;
+  } else if (hsl.h >= 245 && hsl.h < 326) {
+    value = 4;
+  }
+
+  const centerHue = [0, 218, 114, 48, 278, 174][value];
+  const hueDistance = Math.min(Math.abs(hsl.h - centerHue), 360 - Math.abs(hsl.h - centerHue));
+  const confidence = clamp(92 - hueDistance * 1.2 + hsl.s * 18, 20, 100);
+  return { value, confidence };
+}
+
+function rgbToHsl(r, g, b) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === rn) {
+      h = (gn - bn) / d + (gn < bn ? 6 : 0);
+    } else if (max === gn) {
+      h = (bn - rn) / d + 2;
+    } else {
+      h = (rn - gn) / d + 4;
+    }
+    h *= 60;
+  }
+
+  return { h, s, l };
+}
+
+function drawPreview(result = null) {
+  if (!state.imageCanvas) {
+    previewCanvas.classList.remove("ready");
+    return;
+  }
+
+  const source = state.imageCanvas;
+  const scale = Math.min(1, 520 / source.width, 320 / source.height);
+  previewCanvas.width = Math.round(source.width * scale);
+  previewCanvas.height = Math.round(source.height * scale);
+  previewCanvas.classList.add("ready");
+  previewCtx.drawImage(source, 0, 0, previewCanvas.width, previewCanvas.height);
+
+  const crop = result?.crop || state.crop;
+  if (!crop) {
+    return;
+  }
+
+  previewCtx.save();
+  previewCtx.scale(scale, scale);
+  previewCtx.strokeStyle = "#f0b84d";
+  previewCtx.lineWidth = 4 / scale;
+  previewCtx.strokeRect(crop.x, crop.y, crop.width, crop.height);
+
+  const rows = result?.rows || state.rows;
+  const cols = result?.cols || state.cols;
+  previewCtx.strokeStyle = "rgba(255,255,255,0.75)";
+  previewCtx.lineWidth = 1 / scale;
+  for (let row = 1; row < rows; row += 1) {
+    const y = crop.y + crop.height * row / rows;
+    previewCtx.beginPath();
+    previewCtx.moveTo(crop.x, y);
+    previewCtx.lineTo(crop.x + crop.width, y);
+    previewCtx.stroke();
+  }
+  for (let col = 1; col < cols; col += 1) {
+    const x = crop.x + crop.width * col / cols;
+    previewCtx.beginPath();
+    previewCtx.moveTo(x, crop.y);
+    previewCtx.lineTo(x, crop.y + crop.height);
+    previewCtx.stroke();
+  }
+  previewCtx.restore();
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+paletteButtons.forEach((button) => {
+  button.addEventListener("click", () => setTool(button.dataset.tool));
+});
+
+imageInput.addEventListener("change", () => loadImage(imageInput.files[0]));
+document.getElementById("recognizeBoard").addEventListener("click", recognizeFromImage);
+document.getElementById("resetBoard").addEventListener("click", resetBoard);
+document.getElementById("fillSample").addEventListener("click", fillSampleBoard);
+document.getElementById("solveBoard").addEventListener("click", solveBoard);
+
+renderBoard();

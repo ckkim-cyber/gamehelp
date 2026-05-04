@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#24313f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="gamehelp">
+  <title>gamehelp</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app solver-app">
+    <section class="solver-panel" aria-label="꿈의집 보드 해결사">
+      <header class="solver-header">
+        <div>
+          <p class="eyebrow">Match-3 Solver</p>
+          <h1>gamehelp</h1>
+        </div>
+        <button id="resetBoard" class="icon-button" type="button" aria-label="보드 초기화" title="보드 초기화">↻</button>
+      </header>
+
+      <div class="result-card" id="resultCard">
+        <span class="result-label">추천 이동</span>
+        <strong id="bestMove">스크린샷을 선택하세요</strong>
+        <p id="bestReason">게임 화면 스크린샷을 불러오면 보드 영역과 타일 색을 자동으로 인식해 추천 이동을 계산합니다.</p>
+      </div>
+
+      <div class="capture-panel">
+        <label class="file-button" for="imageInput">스크린샷 선택</label>
+        <input id="imageInput" type="file" accept="image/*" capture="environment">
+        <button id="recognizeBoard" type="button">자동 인식</button>
+      </div>
+
+      <canvas id="previewCanvas" class="preview-canvas" width="420" height="420" aria-label="인식 미리보기"></canvas>
+
+      <div class="tool-row" aria-label="타일 선택">
+        <button class="palette active" type="button" data-tool="0" aria-label="빨간 타일"><span class="gem gem-0">◆</span></button>
+        <button class="palette" type="button" data-tool="1" aria-label="파란 타일"><span class="gem gem-1">●</span></button>
+        <button class="palette" type="button" data-tool="2" aria-label="초록 타일"><span class="gem gem-2">▲</span></button>
+        <button class="palette" type="button" data-tool="3" aria-label="노란 타일"><span class="gem gem-3">■</span></button>
+        <button class="palette" type="button" data-tool="4" aria-label="보라 타일"><span class="gem gem-4">✦</span></button>
+        <button class="palette" type="button" data-tool="5" aria-label="청록 타일"><span class="gem gem-5">⬟</span></button>
+        <button class="palette blocker" type="button" data-tool="x" aria-label="장애물">×</button>
+        <button class="palette eraser" type="button" data-tool="blank" aria-label="지우기">⌫</button>
+      </div>
+
+      <div class="board-tools">
+        <button id="fillSample" type="button">예시</button>
+        <button id="solveBoard" type="button">해결 계산</button>
+      </div>
+
+      <div class="board-wrap">
+        <div id="board" class="board input-board" aria-label="입력 보드"></div>
+      </div>
+
+      <div class="tips">
+        <strong>사용법</strong>
+        <span>스크린샷을 선택하면 자동 인식합니다. 틀린 칸은 아래 색상 도구를 고른 뒤 보드에서 해당 칸만 눌러 보정하세요.</span>
+      </div>
+    </section>
+
+    <section class="moves-panel" aria-label="추천 후보">
+      <div class="moves-header">
+        <p class="eyebrow">Candidates</p>
+        <h2>상위 추천</h2>
+      </div>
+      <ol id="moveList" class="move-list"></ol>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator && location.protocol !== "file:") {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js");
+      });
+    }
+  </script>
+</body>
+</html>
