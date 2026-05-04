@@ -137,24 +137,26 @@ h2 {
   margin-bottom: 10px;
 }
 
-.capture-panel input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.file-button,
+.native-file,
 .capture-panel button {
-  display: grid;
-  place-items: center;
   min-height: 42px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
-  cursor: pointer;
   font-weight: 800;
+}
+
+.native-file {
+  width: 100%;
+  min-width: 0;
+  padding: 9px;
+  cursor: pointer;
+}
+
+.capture-panel button {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
 }
 
 #recognizeBoard {

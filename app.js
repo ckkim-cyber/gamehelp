@@ -347,6 +347,7 @@ async function loadImage(file) {
   if (!file) {
     return;
   }
+  updateEmptyResult("이미지 읽는 중", "사진첩에서 선택한 스크린샷을 불러오고 있습니다.");
   const url = URL.createObjectURL(file);
   const image = new Image();
   image.onload = () => {
@@ -354,6 +355,20 @@ async function loadImage(file) {
     state.image = image;
     state.imageCanvas = imageToCanvas(image);
     recognizeFromImage();
+  };
+  image.onerror = async () => {
+    URL.revokeObjectURL(url);
+    try {
+      const bitmap = await createImageBitmap(file);
+      state.image = bitmap;
+      state.imageCanvas = bitmapToCanvas(bitmap);
+      recognizeFromImage();
+    } catch (error) {
+      updateEmptyResult(
+        "이미지를 읽지 못했습니다",
+        "스크린샷을 PNG 또는 JPG로 저장한 뒤 다시 선택하세요. 일부 HEIC 이미지는 브라우저에서 열리지 않을 수 있습니다."
+      );
+    }
   };
   image.src = url;
 }
@@ -365,6 +380,16 @@ function imageToCanvas(image) {
   canvas.width = Math.round(image.naturalWidth * scale);
   canvas.height = Math.round(image.naturalHeight * scale);
   canvas.getContext("2d", { willReadFrequently: true }).drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function bitmapToCanvas(bitmap) {
+  const maxSide = 1200;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d", { willReadFrequently: true }).drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   return canvas;
 }
 
