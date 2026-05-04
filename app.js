@@ -2,7 +2,7 @@ const defaultRows = 8;
 const defaultCols = 8;
 const minGrid = 4;
 const maxGrid = 12;
-const symbols = ["🎀", "📘", "☕", "🔔", "🧶", "🧊"];
+const tileClasses = ["tile-ribbon", "tile-book", "tile-cup", "tile-lamp", "tile-yarn", "tile-ice"];
 const sampleBoard = [
   [0, 1, 2, 3, 4, 5, 0, 1],
   [1, 2, 1, 4, 5, 0, 2, 3],
@@ -75,8 +75,7 @@ function renderBoard() {
         button.textContent = "×";
       } else {
         const gem = document.createElement("span");
-        gem.className = `gem gem-${value}`;
-        gem.textContent = symbols[value];
+        gem.className = `gem gem-${value} ${tileClasses[value]}`;
         button.appendChild(gem);
       }
 
