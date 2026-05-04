@@ -132,31 +132,33 @@ h2 {
 
 .capture-panel {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   margin-bottom: 10px;
 }
 
-.native-file,
+.hidden-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-button,
 .capture-panel button {
+  display: grid;
+  place-items: center;
   min-height: 42px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+  cursor: pointer;
   font-weight: 800;
 }
 
-.native-file {
-  width: 100%;
-  min-width: 0;
-  padding: 9px;
-  cursor: pointer;
-}
-
-.capture-panel button {
-  display: grid;
-  place-items: center;
-  cursor: pointer;
+.file-button.secondary {
+  background: #f7f9fb;
 }
 
 #recognizeBoard {

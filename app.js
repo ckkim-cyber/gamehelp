@@ -32,6 +32,7 @@ const bestMoveEl = document.getElementById("bestMove");
 const bestReasonEl = document.getElementById("bestReason");
 const moveListEl = document.getElementById("moveList");
 const imageInput = document.getElementById("imageInput");
+const anyFileInput = document.getElementById("anyFileInput");
 const previewCanvas = document.getElementById("previewCanvas");
 const previewCtx = previewCanvas.getContext("2d", { willReadFrequently: true });
 const paletteButtons = [...document.querySelectorAll(".palette")];
@@ -645,6 +646,7 @@ paletteButtons.forEach((button) => {
 });
 
 imageInput.addEventListener("change", () => loadImage(imageInput.files[0]));
+anyFileInput.addEventListener("change", () => loadImage(anyFileInput.files[0]));
 document.getElementById("recognizeBoard").addEventListener("click", recognizeFromImage);
 document.getElementById("resetBoard").addEventListener("click", resetBoard);
 document.getElementById("fillSample").addEventListener("click", fillSampleBoard);
