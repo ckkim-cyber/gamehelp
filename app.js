@@ -2,8 +2,7 @@ const defaultRows = 8;
 const defaultCols = 8;
 const minGrid = 4;
 const maxGrid = 12;
-const symbols = ["◆", "●", "▲", "■", "✦", "⬟"];
-const hueNames = ["빨강", "파랑", "초록", "노랑", "보라", "청록"];
+const symbols = ["🎀", "📘", "☕", "🔔", "🧶", "🧊"];
 const sampleBoard = [
   [0, 1, 2, 3, 4, 5, 0, 1],
   [1, 2, 1, 4, 5, 0, 2, 3],
@@ -125,7 +124,7 @@ function cloneBoard(board) {
 }
 
 function isGem(value) {
-  return Number.isInteger(value);
+  return Number.isInteger(value) && value >= 0 && value <= 3;
 }
 
 function swap(board, from, to) {
@@ -445,17 +444,21 @@ function detectBoardCrop(canvas) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const { width, height } = canvas;
   const data = ctx.getImageData(0, 0, width, height).data;
-  const leftLimit = Math.floor(width * 0.18);
+  const leftLimit = Math.floor(width * 0.16);
   const rightLimit = Math.floor(width * 0.86);
   const topLimit = Math.floor(height * 0.02);
   const bottomLimit = Math.floor(height * 0.97);
   const points = [];
+  const xDensity = new Array(width).fill(0);
+  const yDensity = new Array(height).fill(0);
 
   for (let y = topLimit; y < bottomLimit; y += 3) {
     for (let x = leftLimit; x < rightLimit; x += 3) {
       const index = (y * width + x) * 4;
       if (isLikelyTilePixel(data[index], data[index + 1], data[index + 2])) {
         points.push({ x, y });
+        xDensity[x] += 1;
+        yDensity[y] += 1;
       }
     }
   }
@@ -470,20 +473,88 @@ function detectBoardCrop(canvas) {
     };
   }
 
-  const xs = points.map((point) => point.x).sort((a, b) => a - b);
-  const ys = points.map((point) => point.y).sort((a, b) => a - b);
-  const minX = percentile(xs, 0.02);
-  const maxX = percentile(xs, 0.98);
-  const minY = percentile(ys, 0.02);
-  const maxY = percentile(ys, 0.98);
-  const padX = (maxX - minX) * 0.075;
-  const padY = (maxY - minY) * 0.085;
+  const xRange = denseRange(xDensity, leftLimit, rightLimit, width * 0.18, width * 0.53);
+  const yRange = denseRange(yDensity, topLimit, bottomLimit, height * 0.22, height * 0.48);
+  const xs = points
+    .filter((point) => point.x >= xRange.start && point.x <= xRange.end)
+    .map((point) => point.x)
+    .sort((a, b) => a - b);
+  const ys = points
+    .filter((point) => point.y >= yRange.start && point.y <= yRange.end)
+    .map((point) => point.y)
+    .sort((a, b) => a - b);
+  const minX = xs.length ? percentile(xs, 0.01) : xRange.start;
+  const maxX = xs.length ? percentile(xs, 0.99) : xRange.end;
+  const minY = ys.length ? percentile(ys, 0.01) : yRange.start;
+  const maxY = ys.length ? percentile(ys, 0.99) : yRange.end;
+  const padX = (maxX - minX) * 0.035;
+  const padY = (maxY - minY) * 0.055;
   return {
     x: clamp(minX - padX, 0, width - 1),
     y: clamp(minY - padY, 0, height - 1),
     width: clamp(maxX - minX + padX * 2, 40, width),
     height: clamp(maxY - minY + padY * 2, 40, height)
   };
+}
+
+function denseRange(density, start, end, minLength, preferredCenter) {
+  const smoothed = smoothDensity(density, 25);
+  let max = 0;
+  for (let index = start; index < end; index += 1) {
+    max = Math.max(max, smoothed[index]);
+  }
+  const threshold = max * 0.18;
+  const ranges = [];
+  let rangeStart = null;
+  for (let index = start; index < end; index += 1) {
+    if (smoothed[index] >= threshold) {
+      if (rangeStart === null) {
+        rangeStart = index;
+      }
+    } else if (rangeStart !== null) {
+      ranges.push({ start: rangeStart, end: index - 1 });
+      rangeStart = null;
+    }
+  }
+  if (rangeStart !== null) {
+    ranges.push({ start: rangeStart, end: end - 1 });
+  }
+
+  const viable = ranges.filter((range) => range.end - range.start >= minLength);
+  const candidates = viable.length ? viable : ranges;
+  if (!candidates.length) {
+    return { start, end };
+  }
+
+  let best = candidates[0];
+  let bestScore = -Infinity;
+  candidates.forEach((range) => {
+    const center = (range.start + range.end) / 2;
+    const length = range.end - range.start;
+    let mass = 0;
+    for (let index = range.start; index <= range.end; index += 1) {
+      mass += smoothed[index];
+    }
+    const score = mass + length * 4 - Math.abs(center - preferredCenter) * 8;
+    if (score > bestScore) {
+      best = range;
+      bestScore = score;
+    }
+  });
+  return best;
+}
+
+function smoothDensity(values, radius) {
+  const result = new Array(values.length).fill(0);
+  let sum = 0;
+  for (let index = 0; index < values.length; index += 1) {
+    sum += values[index];
+    if (index - radius - 1 >= 0) {
+      sum -= values[index - radius - 1];
+    }
+    result[index] = sum;
+  }
+  return result;
 }
 
 function isLikelyTilePixel(r, g, b) {
@@ -513,12 +584,11 @@ function evaluateGrid(canvas, crop, rows, cols) {
   const aspect = crop.width / crop.height;
   const gridAspect = cols / rows;
   const aspectPenalty = Math.abs(Math.log(aspect / gridAspect)) * 70;
-  const cellSize = Math.min(crop.width / cols, crop.height / rows);
-  const width = cellSize * cols;
-  const height = cellSize * rows;
+  const width = crop.width;
+  const height = crop.height;
   const adjustedCrop = {
-    x: crop.x + (crop.width - width) / 2,
-    y: crop.y + (crop.height - height) / 2,
+    x: crop.x,
+    y: crop.y,
     width,
     height
   };
@@ -599,19 +669,21 @@ function classifyColor(r, g, b) {
   }
 
   let value = 0;
-  if (hsl.h >= 25 && hsl.h < 72) {
+  if (hsl.h >= 20 && hsl.h < 62 && hsl.s < 0.5 && hsl.l > 0.42) {
+    value = 4;
+  } else if (hsl.h >= 25 && hsl.h < 72) {
     value = 3;
   } else if (hsl.h >= 72 && hsl.h < 155) {
     value = 2;
-  } else if (hsl.h >= 155 && hsl.h < 190) {
+  } else if (hsl.h >= 155 && hsl.h < 215 && hsl.l > 0.52) {
     value = 5;
   } else if (hsl.h >= 190 && hsl.h < 245) {
     value = 1;
   } else if (hsl.h >= 245 && hsl.h < 326) {
-    value = 4;
+    value = 5;
   }
 
-  const centerHue = [0, 218, 114, 48, 278, 174][value];
+  const centerHue = [0, 218, 114, 48, 38, 188][value];
   const hueDistance = Math.min(Math.abs(hsl.h - centerHue), 360 - Math.abs(hsl.h - centerHue));
   const confidence = clamp(92 - hueDistance * 1.15 + hsl.s * 20 + colorDominance(r, g, b) * 16, 18, 100);
   return { value, confidence };

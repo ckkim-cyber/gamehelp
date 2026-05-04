@@ -242,6 +242,7 @@ h2 {
   font-size: 19px;
   font-weight: 900;
   box-shadow: inset 0 -5px rgba(0, 0, 0, 0.16);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
 }
 
 .gem-0 {
@@ -261,11 +262,11 @@ h2 {
 }
 
 .gem-4 {
-  background: #8f62b8;
+  background: #d9bd86;
 }
 
 .gem-5 {
-  background: #33a4a0;
+  background: #60cde0;
 }
 
 .blocker,
